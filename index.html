@@ -5,22 +5,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Loot & Dash - Multiplayer Bluff Game</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
     <style>body { font-family: 'Outfit', sans-serif; }</style>
 </head>
 <body class="h-full bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4">
-    <div id="app" class="w-full max-w-md bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-3xl shadow-2xl p-6 flex flex-col relative overflow-hidden min-h-[550px] justify-between">
-        <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+    <div id="app" class="w-full max-w-md bg-slate-900/85 backdrop-blur-xl border border-slate-800 rounded-3xl shadow-2xl p-6 flex flex-col relative overflow-hidden min-h-[580px] justify-between">
+        
+        <!-- Header -->
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800">
             <div class="flex items-center space-x-2">
                 <span class="text-2xl">💰</span>
-                <h1 class="text-xl font-extrabold bg-gradient-to-r from-amber-400 to-rose-500 bg-clip-text text-transparent">Loot & Dash</h1>
+                <h1 class="text-lg font-extrabold bg-gradient-to-r from-amber-400 to-rose-500 bg-clip-text text-transparent">Loot & Dash</h1>
             </div>
-            <div id="connection-status" class="text-xs px-2 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full font-medium">Connecting...</div>
+            <div id="header-room-badge" class="hidden text-xs px-2.5 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full font-bold tracking-wider">
+                Room: <span id="header-room-code">---</span>
+            </div>
+            <div id="connection-status" class="text-xs px-2 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full font-medium">Connected</div>
         </div>
+
+        <!-- Dynamic Content Area -->
         <div id="view-container" class="flex-1 flex flex-col justify-center my-4"></div>
-        <div class="text-center text-xs text-slate-500 pt-3 border-t border-slate-800/60">No login required • Real-time Multiplayer</div>
+
+        <!-- Footer -->
+        <div class="text-center text-xs text-slate-500 pt-3 border-t border-slate-800/60">
+            Real-time P2P Multiplayer • No Login
+        </div>
     </div>
 
+    <!-- Modal -->
     <div id="modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-xs w-full text-center shadow-2xl">
             <h3 id="modal-title" class="text-lg font-bold text-white mb-2">Notice</h3>
@@ -28,48 +41,35 @@
             <button onclick="closeModal()" class="w-full py-2.5 bg-gradient-to-r from-amber-500 to-rose-500 text-white font-bold rounded-xl shadow-lg">Got it</button>
         </div>
     </div>
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'loot-dash-default-app';
-        let firebaseConfig = {};
-        try { firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}'); } catch (e) { firebaseConfig = {}; }
-        
-        let app, db, auth, currentUser = null;
-        let currentRoomId = null;
+    <script>
+        let peer = null;
+        let myId = '';
         let myName = '';
-        let myId = 'user_' + Math.random().toString(36).substring(2, 8);
-        let isOnline = false;
+        let currentRoomCode = '';
+        let isHost = false;
+        let connections = []; // For Host
+        let hostConnection = null; // For Player
+        let gameData = {
+            status: 'lobby',
+            round: 1,
+            maxRounds: 5,
+            players: {},
+            roundSummary: ''
+        };
 
-        const statusEl = document.getElementById('connection-status');
         const viewContainer = document.getElementById('view-container');
+        const headerBadge = document.getElementById('header-room-badge');
+        const headerCodeText = document.getElementById('header-room-code');
 
-        try {
-            if (Object.keys(firebaseConfig).length > 0) {
-                app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    signInWithCustomToken(auth, __initial_auth_token).then(() => {
-                        currentUser = auth.currentUser; if(currentUser) myId = currentUser.uid;
-                        isOnline = true; updateStatus("Online", "emerald");
-                    }).catch(() => fallbackInit());
-                } else {
-                    signInAnonymously(auth).then(() => {
-                        currentUser = auth.currentUser; if(currentUser) myId = currentUser.uid;
-                        isOnline = true; updateStatus("Online", "emerald");
-                    }).catch(() => fallbackInit());
-                }
-            } else { fallbackInit(); }
-        } catch (e) { fallbackInit(); }
-
-        function fallbackInit() { isOnline = false; updateStatus("Local Mode", "amber"); renderHome(); }
-        function updateStatus(text, color) {
-            statusEl.textContent = text;
-            statusEl.className = color === 'emerald' ? "text-xs px-2 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full font-medium" : "text-xs px-2 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full font-medium";
-            renderHome();
+        function updateRoomBadge(code) {
+            if (code) {
+                currentRoomCode = code;
+                headerCodeText.textContent = code;
+                headerBadge.classList.remove('hidden');
+            } else {
+                headerBadge.classList.add('hidden');
+            }
         }
 
         window.showModal = function(title, message) {
@@ -78,12 +78,15 @@
             document.getElementById('modal').classList.remove('hidden');
             document.getElementById('modal').classList.add('flex');
         }
+
         window.closeModal = function() {
             document.getElementById('modal').classList.remove('flex');
             document.getElementById('modal').classList.add('hidden');
         }
 
+        // Initialize Home View
         function renderHome() {
+            updateRoomBadge(null);
             viewContainer.innerHTML = `
                 <div class="space-y-6 text-center">
                     <div>
@@ -94,7 +97,7 @@
                         <input type="text" id="player-name-input" placeholder="Enter your nickname..." maxlength="12" class="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 text-center font-semibold" />
                         <button onclick="handleCreateRoom()" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-rose-500 text-white font-bold rounded-xl shadow-lg">Create Room</button>
                         <div class="flex space-x-2 pt-2">
-                            <input type="text" id="room-code-input" placeholder="Room Code" maxlength="6" class="w-1/2 px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 uppercase text-center font-bold tracking-widest" />
+                            <input type="text" id="room-code-input" placeholder="Room Code" maxlength="4" class="w-1/2 px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 uppercase text-center font-bold tracking-widest" />
                             <button onclick="handleJoinRoom()" class="w-1/2 py-3 bg-slate-800 border border-slate-700 text-white font-bold rounded-xl">Join Room</button>
                         </div>
                     </div>
@@ -102,134 +105,212 @@
             `;
         }
 
-        window.handleCreateRoom = async function() {
+        // 1. Create Room (Host)
+        window.handleCreateRoom = function() {
             const nameInput = document.getElementById('player-name-input').value.trim();
             if (!nameInput) { showModal("Name Required", "Please enter your nickname first!"); return; }
             myName = nameInput;
-            currentRoomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+            isHost = true;
 
-            const initialRoomData = {
-                hostId: myId, status: 'lobby', round: 1, maxRounds: 5,
-                players: { [myId]: { id: myId, name: myName, score: 0, choice: null } },
-                lastAction: `${myName} created the room.`
-            };
+            const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+            myId = 'host_' + Math.random().toString(36).substring(2, 6);
 
-            try {
-                if (isOnline && db) {
-                    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms_${currentRoomId}`);
-                    await setDoc(roomRef, initialRoomData);
-                    subscribeToRoom(currentRoomId);
-                } else {
-                    localStorage.setItem(`room_${currentRoomId}`, JSON.stringify(initialRoomData));
-                    startLocalPolling(currentRoomId);
-                }
-            } catch (err) {
-                localStorage.setItem(`room_${currentRoomId}`, JSON.stringify(initialRoomData));
-                startLocalPolling(currentRoomId);
-            }
+            peer = new Peer('loot_' + roomCode);
+            peer.on('open', (id) => {
+                updateRoomBadge(roomCode);
+                gameData = {
+                    status: 'lobby',
+                    round: 1,
+                    maxRounds: 5,
+                    players: {
+                        [myId]: { id: myId, name: myName, score: 0, choice: null }
+                    },
+                    roundSummary: ''
+                };
+                renderLobby();
+            });
+
+            peer.on('connection', (conn) => {
+                connections.push(conn);
+                conn.on('data', (data) => handleHostReceiveData(data, conn));
+                conn.on('close', () => {
+                    connections = connections.filter(c => c !== conn);
+                    // Remove disconnected player
+                    Object.keys(gameData.players).forEach(pid => {
+                        if(gameData.players[pid].connId === conn.peer) {
+                            delete gameData.players[pid];
+                        }
+                    });
+                    broadcastGameData();
+                });
+            });
+
+            peer.on('error', (err) => {
+                showModal("Error", "Could not create room. Try again.");
+            });
         };
 
-        window.handleJoinRoom = async function() {
+        // 2. Join Room (Player)
+        window.handleJoinRoom = function() {
             const nameInput = document.getElementById('player-name-input').value.trim();
-            const codeInput = document.getElementById('room-code-input').value.trim().toUpperCase();
+            const codeInput = document.getElementById('room-code-input').value.trim();
 
             if (!nameInput) { showModal("Name Required", "Please enter your nickname!"); return; }
-            if (!codeInput) { showModal("Invalid Code", "Enter a valid room code."); return; }
+            if (!codeInput || codeInput.length !== 4) { showModal("Invalid Code", "Enter a valid 4-digit room code."); return; }
 
             myName = nameInput;
-            currentRoomId = codeInput;
+            isHost = false;
+            myId = 'player_' + Math.random().toString(36).substring(2, 6);
 
-            try {
-                if (isOnline && db) {
-                    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms_${currentRoomId}`);
-                    const snap = await getDoc(roomRef);
-                    if (!snap.exists()) { showModal("Not Found", "Room code does not exist."); return; }
-                    const data = snap.data();
-                    if (data.status !== 'lobby') { showModal("Started", "Game already in progress!"); return; }
-                    data.players[myId] = { id: myId, name: myName, score: 0, choice: null };
-                    await setDoc(roomRef, data);
-                    subscribeToRoom(currentRoomId);
-                } else {
-                    const localData = localStorage.getItem(`room_${currentRoomId}`);
-                    if (!localData) { showModal("Not Found", "Room code does not exist locally."); return; }
-                    const data = JSON.parse(localData);
-                    data.players[myId] = { id: myId, name: myName, score: 0, choice: null };
-                    localStorage.setItem(`room_${currentRoomId}`, JSON.stringify(data));
-                    startLocalPolling(currentRoomId);
-                }
-            } catch (err) { showModal("Error", "Could not join room."); }
+            peer = new Peer();
+            peer.on('open', (id) => {
+                hostConnection = peer.connect('loot_' + codeInput);
+
+                hostConnection.on('open', () => {
+                    updateRoomBadge(codeInput);
+                    hostConnection.send({ type: 'JOIN', id: myId, name: myName });
+                });
+
+                hostConnection.on('data', (data) => {
+                    gameData = data;
+                    handleGameDataSync();
+                });
+
+                hostConnection.on('error', () => {
+                    showModal("Connection Failed", "Could not connect to room.");
+                });
+            });
+
+            peer.on('error', () => {
+                showModal("Room Not Found", "Check the code and try again.");
+            });
         };
 
-        function subscribeToRoom(roomId) {
-            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms_${roomId}`);
-            onSnapshot(roomRef, (docSnap) => {
-                if (!docSnap.exists()) return;
-                handleRoomData(docSnap.data());
+        // Host handles incoming player actions
+        function handleHostReceiveData(data, conn) {
+            if (data.type === 'JOIN') {
+                gameData.players[data.id] = { id: data.id, name: data.name, score: 0, choice: null, connId: conn.peer };
+                broadcastGameData();
+            } else if (data.type === 'CHOICE') {
+                if (gameData.players[data.id]) {
+                    gameData.players[data.id].choice = data.choice;
+                }
+                checkAllChosen();
+            }
+        }
+
+        function broadcastGameData() {
+            handleGameDataSync();
+            connections.forEach(conn => {
+                conn.send(gameData);
             });
         }
 
-        function startLocalPolling(roomId) {
-            setInterval(() => {
-                const localData = localStorage.getItem(`room_${roomId}`);
-                if (localData) handleRoomData(JSON.parse(localData));
-            }, 1000);
+        function handleGameDataSync() {
+            if (gameData.status === 'lobby') renderLobby();
+            else if (gameData.status === 'playing') renderGame();
+            else if (gameData.status === 'round_over') renderRoundOver();
+            else if (gameData.status === 'game_over') renderGameOver();
         }
 
-        function handleRoomData(data) {
-            if (data.status === 'lobby') renderLobby(data);
-            else if (data.status === 'playing') renderGame(data);
-            else if (data.status === 'round_over') renderRoundOver(data);
-            else if (data.status === 'game_over') renderGameOver(data);
+        // Host triggers start game
+        window.startGame = function() {
+            if (!isHost) return;
+            gameData.status = 'playing';
+            gameData.round = 1;
+            Object.keys(gameData.players).forEach(pid => gameData.players[pid].choice = null);
+            broadcastGameData();
+        };
+
+        // Player / Host makes a choice
+        window.makeChoice = function(choice) {
+            if (isHost) {
+                gameData.players[myId].choice = choice;
+                checkAllChosen();
+            } else {
+                gameData.players[myId].choice = choice;
+                // Update local UI immediately
+                renderGame();
+                hostConnection.send({ type: 'CHOICE', id: myId, choice: choice });
+            }
+        };
+
+        function checkAllChosen() {
+            if (!isHost) return;
+            const players = Object.values(gameData.players);
+            const allChosen = players.every(p => p.choice !== null);
+
+            if (allChosen) {
+                const collectors = players.filter(p => p.choice === 'collect');
+                const stealers = players.filter(p => p.choice === 'steal');
+
+                if (stealers.length === 0) {
+                    collectors.forEach(p => gameData.players[p.id].score += 10);
+                    gameData.roundSummary = "Everyone collected! All gained +10 pts.";
+                } else if (collectors.length === 0) {
+                    gameData.roundSummary = "Everyone stole! Nobody got points.";
+                } else {
+                    stealers.forEach(p => gameData.players[p.id].score += 15);
+                    gameData.roundSummary = `${stealers.length} Stealer(s) successfully looted collectors!`;
+                }
+                gameData.status = 'round_over';
+            }
+            broadcastGameData();
         }
 
-        function renderLobby(data) {
-            const playersList = Object.values(data.players).map(p => `
+        window.nextRound = function() {
+            if (!isHost) return;
+            if (gameData.round >= gameData.maxRounds) {
+                gameData.status = 'game_over';
+            } else {
+                gameData.round += 1;
+                gameData.status = 'playing';
+                Object.keys(gameData.players).forEach(pid => gameData.players[pid].choice = null);
+            }
+            broadcastGameData();
+        };
+
+        // Render Lobby
+        function renderLobby() {
+            const playersList = Object.values(gameData.players).map(p => `
                 <div class="flex items-center justify-between p-3 bg-slate-950/60 border border-slate-800 rounded-xl">
                     <span class="font-semibold text-white">${p.name}</span>
-                    ${p.id === data.hostId ? '<span class="text-xs bg-amber-500/10 text-amber-400 border px-2 py-0.5 rounded-md">Host</span>' : ''}
+                    ${p.id === Object.keys(gameData.players)[0] ? '<span class="text-xs bg-amber-500/10 text-amber-400 border px-2 py-0.5 rounded-md">Host</span>' : ''}
                 </div>
             `).join('');
 
-            const isHost = myId === data.hostId;
             viewContainer.innerHTML = `
                 <div class="space-y-4">
                     <div class="text-center bg-slate-950/40 p-3 rounded-2xl border border-slate-800">
-                        <span class="text-xs text-slate-400 uppercase tracking-widest font-bold">Room Code</span>
-                        <div class="text-3xl font-extrabold text-amber-400 tracking-wider mt-1">${currentRoomId}</div>
+                        <span class="text-xs text-slate-400 uppercase tracking-widest font-bold">Share Room Code</span>
+                        <div class="text-3xl font-extrabold text-amber-400 tracking-wider mt-1">${currentRoomCode}</div>
                     </div>
                     <div class="space-y-2 max-h-40 overflow-y-auto">${playersList}</div>
-                    ${isHost ? `<button onclick="startGame()" class="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl shadow-lg">Start Game</button>` : `<div class="text-center text-sm text-slate-400 py-2">Waiting for host...</div>`}
+                    ${isHost ? `<button onclick="startGame()" class="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl shadow-lg">Start Game</button>` : `<div class="text-center text-sm text-slate-400 py-2">Waiting for host to start...</div>`}
                 </div>
             `;
         }
 
-        window.startGame = async function() {
-            updateRoomData(data => {
-                data.status = 'playing';
-                data.round = 1;
-                Object.keys(data.players).forEach(pid => data.players[pid].choice = null);
-            });
-        };
-
-        function renderGame(data) {
-            const me = data.players[myId] || {};
+        // Render Game Screen
+        function renderGame() {
+            const me = gameData.players[myId] || {};
             const hasChosen = me.choice !== null;
 
             viewContainer.innerHTML = `
                 <div class="space-y-4">
                     <div class="flex justify-between items-center bg-slate-950/40 px-4 py-2.5 rounded-xl border border-slate-800">
-                        <span class="text-xs font-bold text-slate-400">ROUND ${data.round} / ${data.maxRounds}</span>
+                        <span class="text-xs font-bold text-slate-400">ROUND ${gameData.round} / ${gameData.maxRounds}</span>
                         <span class="text-xs font-bold text-amber-400">Score: ${me.score || 0} pts</span>
                     </div>
                     ${!hasChosen ? `
-                        <div class="space-y-3 pt-4">
+                        <div class="space-y-3 pt-2">
                             <div class="text-center text-sm font-semibold text-white">Make Your Secret Move:</div>
                             <div class="grid grid-cols-2 gap-3">
-                                <button onclick="makeChoice('collect')" class="p-4 bg-emerald-600/20 border border-emerald-500/40 rounded-2xl flex flex-col items-center">
+                                <button onclick="makeChoice('collect')" class="p-4 bg-emerald-600/20 border border-emerald-500/40 rounded-2xl flex flex-col items-center hover:bg-emerald-600/30">
                                     <span class="text-2xl mb-1">🪙</span>
                                     <span class="font-bold text-emerald-400 text-sm">Collect (+10)</span>
                                 </button>
-                                <button onclick="makeChoice('steal')" class="p-4 bg-rose-600/20 border border-rose-500/40 rounded-2xl flex flex-col items-center">
+                                <button onclick="makeChoice('steal')" class="p-4 bg-rose-600/20 border border-rose-500/40 rounded-2xl flex flex-col items-center hover:bg-rose-600/30">
                                     <span class="text-2xl mb-1">🥷</span>
                                     <span class="font-bold text-rose-400 text-sm">Steal (Bluff)</span>
                                 </button>
@@ -240,49 +321,9 @@
             `;
         }
 
-        window.makeChoice = async function(choice) {
-            updateRoomData(data => {
-                data.players[myId].choice = choice;
-                const allChosen = Object.values(data.players).every(p => p.choice !== null);
-                if (allChosen) {
-                    const players = Object.values(data.players);
-                    const collectors = players.filter(p => p.choice === 'collect');
-                    const stealers = players.filter(p => p.choice === 'steal');
-
-                    if (stealers.length === 0) {
-                        collectors.forEach(p => data.players[p.id].score += 10);
-                        data.roundSummary = "Everyone collected! All gained +10 pts.";
-                    } else if (collectors.length === 0) {
-                        data.roundSummary = "Everyone stole! Nobody got points.";
-                    } else {
-                        stealers.forEach(p => data.players[p.id].score += 15);
-                        data.roundSummary = `${stealers.length} Stealer(s) successfully looted collectors!`;
-                    }
-                    data.status = 'round_over';
-                }
-            });
-        };
-
-        async function updateRoomData(updater) {
-            if (isOnline && db) {
-                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms_${currentRoomId}`);
-                const snap = await getDoc(roomRef);
-                if (!snap.exists()) return;
-                const data = snap.data();
-                updater(data);
-                await setDoc(roomRef, data);
-            } else {
-                const localData = localStorage.getItem(`room_${currentRoomId}`);
-                if (!localData) return;
-                const data = JSON.parse(localData);
-                updater(data);
-                localStorage.setItem(`room_${currentRoomId}`, JSON.stringify(data));
-            }
-        }
-
-        window.renderRoundOver = function(data) {
-            const isHost = myId === data.hostId;
-            const scoresList = Object.values(data.players).map(p => `
+        // Render Round Over
+        function renderRoundOver() {
+            const scoresList = Object.values(gameData.players).map(p => `
                 <div class="flex justify-between p-2 bg-slate-950/40 rounded-lg text-sm">
                     <span>${p.name} (${p.choice ? p.choice.toUpperCase() : '...'})</span>
                     <span class="font-bold text-amber-400">${p.score} pts</span>
@@ -292,27 +333,16 @@
             viewContainer.innerHTML = `
                 <div class="space-y-4 text-center">
                     <h3 class="text-lg font-bold text-white">Round Results</h3>
-                    <p class="text-xs text-amber-400 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20">${data.roundSummary}</p>
+                    <p class="text-xs text-amber-400 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20">${gameData.roundSummary}</p>
                     <div class="space-y-1.5 max-h-32 overflow-y-auto text-left">${scoresList}</div>
                     ${isHost ? `<button onclick="nextRound()" class="w-full py-3 bg-emerald-600 text-white font-bold rounded-xl">Next Round</button>` : `<p class="text-xs text-slate-400">Waiting for host to continue...</p>`}
                 </div>
             `;
         }
 
-        window.nextRound = async function() {
-            updateRoomData(data => {
-                if (data.round >= data.maxRounds) {
-                    data.status = 'game_over';
-                } else {
-                    data.round += 1;
-                    data.status = 'playing';
-                    Object.keys(data.players).forEach(pid => data.players[pid].choice = null);
-                }
-            });
-        };
-
-        function renderGameOver(data) {
-            const sorted = Object.values(data.players).sort((a,b) => b.score - a.score);
+        // Render Game Over
+        function renderGameOver() {
+            const sorted = Object.values(gameData.players).sort((a,b) => b.score - a.score);
             viewContainer.innerHTML = `
                 <div class="space-y-4 text-center">
                     <h2 class="text-2xl font-extrabold text-amber-400">🏆 Game Over! 🏆</h2>
@@ -324,6 +354,9 @@
                 </div>
             `;
         }
+
+        // Initialize App
+        renderHome();
     </script>
 </body>
 </html>
