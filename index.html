@@ -48,8 +48,8 @@
         let myName = '';
         let currentRoomCode = '';
         let isHost = false;
-        let connections = []; // For Host
-        let hostConnection = null; // For Player
+        let connections = []; 
+        let hostConnection = null; 
         let gameData = {
             status: 'lobby',
             round: 1,
@@ -84,7 +84,6 @@
             document.getElementById('modal').classList.add('hidden');
         }
 
-        // Initialize Home View
         function renderHome() {
             updateRoomBadge(null);
             viewContainer.innerHTML = `
@@ -97,7 +96,7 @@
                         <input type="text" id="player-name-input" placeholder="Enter your nickname..." maxlength="12" class="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 text-center font-semibold" />
                         <button onclick="handleCreateRoom()" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-rose-500 text-white font-bold rounded-xl shadow-lg">Create Room</button>
                         <div class="flex space-x-2 pt-2">
-                            <input type="text" id="room-code-input" placeholder="Room Code" maxlength="4" class="w-1/2 px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 uppercase text-center font-bold tracking-widest" />
+                            <input type="text" id="room-code-input" placeholder="Room Code" maxlength="10" class="w-1/2 px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 uppercase text-center font-bold tracking-widest" />
                             <button onclick="handleJoinRoom()" class="w-1/2 py-3 bg-slate-800 border border-slate-700 text-white font-bold rounded-xl">Join Room</button>
                         </div>
                     </div>
@@ -105,7 +104,6 @@
             `;
         }
 
-        // 1. Create Room (Host)
         window.handleCreateRoom = function() {
             const nameInput = document.getElementById('player-name-input').value.trim();
             if (!nameInput) { showModal("Name Required", "Please enter your nickname first!"); return; }
@@ -135,7 +133,6 @@
                 conn.on('data', (data) => handleHostReceiveData(data, conn));
                 conn.on('close', () => {
                     connections = connections.filter(c => c !== conn);
-                    // Remove disconnected player
                     Object.keys(gameData.players).forEach(pid => {
                         if(gameData.players[pid].connId === conn.peer) {
                             delete gameData.players[pid];
@@ -150,13 +147,12 @@
             });
         };
 
-        // 2. Join Room (Player)
         window.handleJoinRoom = function() {
             const nameInput = document.getElementById('player-name-input').value.trim();
             const codeInput = document.getElementById('room-code-input').value.trim();
 
             if (!nameInput) { showModal("Name Required", "Please enter your nickname!"); return; }
-            if (!codeInput || codeInput.length !== 4) { showModal("Invalid Code", "Enter a valid 4-digit room code."); return; }
+            if (!codeInput) { showModal("Invalid Code", "Enter a valid room code."); return; }
 
             myName = nameInput;
             isHost = false;
@@ -186,7 +182,6 @@
             });
         };
 
-        // Host handles incoming player actions
         function handleHostReceiveData(data, conn) {
             if (data.type === 'JOIN') {
                 gameData.players[data.id] = { id: data.id, name: data.name, score: 0, choice: null, connId: conn.peer };
@@ -213,7 +208,6 @@
             else if (gameData.status === 'game_over') renderGameOver();
         }
 
-        // Host triggers start game
         window.startGame = function() {
             if (!isHost) return;
             gameData.status = 'playing';
@@ -222,14 +216,12 @@
             broadcastGameData();
         };
 
-        // Player / Host makes a choice
         window.makeChoice = function(choice) {
             if (isHost) {
                 gameData.players[myId].choice = choice;
                 checkAllChosen();
             } else {
                 gameData.players[myId].choice = choice;
-                // Update local UI immediately
                 renderGame();
                 hostConnection.send({ type: 'CHOICE', id: myId, choice: choice });
             }
@@ -270,7 +262,6 @@
             broadcastGameData();
         };
 
-        // Render Lobby
         function renderLobby() {
             const playersList = Object.values(gameData.players).map(p => `
                 <div class="flex items-center justify-between p-3 bg-slate-950/60 border border-slate-800 rounded-xl">
@@ -291,7 +282,6 @@
             `;
         }
 
-        // Render Game Screen
         function renderGame() {
             const me = gameData.players[myId] || {};
             const hasChosen = me.choice !== null;
@@ -321,7 +311,6 @@
             `;
         }
 
-        // Render Round Over
         function renderRoundOver() {
             const scoresList = Object.values(gameData.players).map(p => `
                 <div class="flex justify-between p-2 bg-slate-950/40 rounded-lg text-sm">
@@ -340,7 +329,6 @@
             `;
         }
 
-        // Render Game Over
         function renderGameOver() {
             const sorted = Object.values(gameData.players).sort((a,b) => b.score - a.score);
             viewContainer.innerHTML = `
@@ -355,7 +343,6 @@
             `;
         }
 
-        // Initialize App
         renderHome();
     </script>
 </body>
